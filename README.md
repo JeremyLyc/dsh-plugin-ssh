@@ -53,7 +53,21 @@ cd ~/.dsh/profiles/desktop
 pnpm add "link:$HOME/.dsh/plugins/dsh-plugin-ssh" --ignore-scripts
 ```
 
-3. 在 `~/.dsh/profiles/desktop/cordis.patch.yml` 追加（`insert` 是"新增条目"的语法）：
+3. 面板部分走包自带的 bundle 补丁：把包名加进 `dsh.profile.bundles`（`package.json` 里的
+   `dsh.bundle.patch` 指向 `cordis.patch.yml`，它会插入 `ssh-panel` 条目）：
+
+```json
+{
+  "dsh": {
+    "profile": {
+      "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-plugin-ssh"]
+    }
+  }
+}
+```
+
+4. 会话工具需要一条显式条目（要绝对路径指向 `server.mjs`），追加到
+   `~/.dsh/profiles/desktop/cordis.patch.yml`：
 
 ```yaml
 - insert:
@@ -69,8 +83,6 @@ pnpm add "link:$HOME/.dsh/plugins/dsh-plugin-ssh" --ignore-scripts
           DSH_SSH_HOSTS: '<你的 ssh-hosts.json>'
         toolCallTimeoutMs: 300000
         failOnStartupError: false
-    - id: ssh-panel                    # 面板 + 客户端 bundle
-      name: "dsh-plugin-ssh"
 ```
 
 保存即热加载；日志出现 `ssh-panel: endpoints registered at /ssh-panel/api` 就绪。客户端 bundle

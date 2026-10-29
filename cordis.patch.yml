@@ -1,0 +1,9 @@
+# Bundle layer for `dsh-plugin-ssh`.
+#
+# Listing this package in a profile's `dsh.profile.bundles` applies this file,
+# which adds the SSH panel entry (Host half + browser bundle). The MCP tool
+# half is a separate entry because it needs an absolute path to `server.mjs`;
+# see the README's "安装" section for that snippet.
+- insert:
+    - id: ssh-panel
+      name: "dsh-plugin-ssh"

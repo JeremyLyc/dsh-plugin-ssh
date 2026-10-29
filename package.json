@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-ssh",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "SSH remote workspaces for DeepSeek Harness: agent tools plus a sidebar panel, server file browser, directory picker and password prompt",
   "type": "module",
   "main": "lib/index.js",
@@ -15,6 +15,9 @@
   },
   "types": "./docs/index.d.ts",
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "inject": []
