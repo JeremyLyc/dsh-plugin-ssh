@@ -37,10 +37,7 @@ DSH 的工作区必须是一个**真实存在的本地目录**，而 agent 真�
 
 ## 截图
 
-![输入框与状态栏](docs/screenshots/composer.png)
-
-> 仓库内的截图均已脱敏。功能截图（面板、目录弹窗、服务器文件页签）建议自行截图后放进
-> `docs/screenshots/` —— 本仓库不附带包含真实主机名与项目名的截图。
+![在 DSH 里用对话操作服务器：右侧是服务器文件页签，输入框下方是状态栏](docs/screenshots/session.png)
 
 ## 安装
 
