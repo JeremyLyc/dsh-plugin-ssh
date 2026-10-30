@@ -7,7 +7,7 @@
 **把一台远端 Linux 服务器变成 DeepSeek Harness 里的"工作区"**：agent 用对话操作服务器，你在侧栏里浏览它的目录、传文件、切换工作目录。
 
 > SSH remote workspaces for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). One plugin gives you
-> agent tools (`mcp__ssh__*`), a sidebar panel, a server-files tab, a workspace bound to a remote
+> workspace-scoped agent tools (`ssh_exec` / `ssh_upload` / `ssh_download`), a sidebar panel, a server-files tab, a workspace bound to a remote
 > directory, and a composer pill showing where the agent is actually working.
 
 ---
@@ -23,17 +23,34 @@ DSH 的工作区必须是一个**真实存在的本地目录**，而 agent 真�
  （面板） │       │                                         ▲                    │
           │       └─ 写绑定 + AGENTS.md                      │                    │
           │                                                 │                    │
-          │  server.mjs（MCP stdio）── mcp__ssh__* 工具 ────┘                    │
+          │  lib/tools.js（原生工具，按工作区绑定取主机）─────┘                    │
           └─────────────────────────────────────────────────────────────────────┘
 ```
 
-- **会话工具**：`mcp__ssh__ssh_exec` / `ssh_upload` / `ssh_download` / `ssh_hosts`，模型直接调用。
+- **会话工具**：`ssh_exec` / `ssh_upload` / `ssh_download` / `ssh_workspace`，模型直接调用。
+  **工具不接受 host 参数**——主机由会话所在工作区的绑定决定，见下面的「隔离」一节。
 - **左侧栏 `SSH 远程` 面板**：选主机、跑命令、传文件、一键建远程工作区。
 - **右侧栏「服务器文件」页签**：浏览服务器任意目录、预览文本、切换工作目录。
 - **远程工作区**：本地占位目录 + `.dsh-ssh-workspace.json` 绑定 + 自动生成的 `AGENTS.md`，
   该工作区里的每个会话都确切知道"我在哪台机器、在哪个目录、用哪个工具"。
 - **密码弹窗**：主机没有预置密钥/密码时才问，密码只活在 Host 进程内存里。
 - **输入框下方的当前目录 pill**：`prod:/srv/app` 或本地工作区路径，切目录即时跟随。
+
+## 隔离：一个会话只能碰到自己的服务器
+
+同时连多台服务器时，最容易出的事故是"这台机器的对话跑到那台机器上执行"。这个插件在
+**工具契约层面**堵死它，而不是靠提示词提醒：
+
+- 工具签名里**没有 `host` 参数**，也没有 `defaultHost` 兜底 —— 模型的调用在语法上就无法指向别的机器；
+- 每次调用由 `exec.agent` 取当前 Session 的工作目录，读该目录下的 `.dsh-ssh-workspace.json`；
+- 未绑定（普通工作区）→ 直接拒绝，连 `ssh_workspace` 都只回报"未绑定"；
+- 绑定指向配置里不存在的主机 → 拒绝，不会回退到默认主机。
+
+为什么不走 MCP：`dsh-mcp-client` 调 `client.callTool()` 时只转发工具名和参数，MCP 服务端
+**拿不到会话身份**，只能接受任意 host 别名——那正是要避免的。原生工具能拿到 `exec.agent`，
+所以隔离做在原生工具上。仓库里的 `server.mjs` 仍保留作参考/兼容实现，但**不要和原生工具同时启用**，
+否则 MCP 那条路径会绕过隔离。
+
 
 ## 截图
 
@@ -66,27 +83,11 @@ pnpm add "link:$HOME/.dsh/plugins/dsh-plugin-ssh" --ignore-scripts
 }
 ```
 
-4. 会话工具需要一条显式条目（要绝对路径指向 `server.mjs`），追加到
-   `~/.dsh/profiles/desktop/cordis.patch.yml`：
+4. 就这些。`cordis.patch.yml` 里的 `ssh-panel` 条目同时注册面板接口和四个会话工具；
+   日志出现 `ssh-panel: workspace-scoped tools registered (…)` 与
+   `ssh-panel: endpoints registered at /ssh-panel/api` 即就绪。客户端 bundle 改动需要刷新窗口。
 
-```yaml
-- insert:
-    - id: mcp-ssh                      # 会话工具：MCP stdio 服务器
-      name: "@deepseek-ai/dsh-mcp-client"
-      config:
-        serverName: ssh
-        transport: stdio
-        command: node
-        args:
-          - '<插件目录>/server.mjs'
-        env:
-          DSH_SSH_HOSTS: '<你的 ssh-hosts.json>'
-        toolCallTimeoutMs: 300000
-        failOnStartupError: false
-```
-
-保存即热加载；日志出现 `ssh-panel: endpoints registered at /ssh-panel/api` 就绪。客户端 bundle
-改动需要刷新窗口。
+> 不要另外启用 `server.mjs` 的 MCP 条目：MCP 服务端看不到会话身份，会让一个会话碰到别的服务器。
 
 ## 配置主机
 
@@ -128,10 +129,12 @@ Host 进程内存（`setRuntimePassword`），**不写任何文件**，DSH 重�
 
 | 工具 | 作用 |
 |---|---|
-| `mcp__ssh__ssh_hosts` | 列主机、默认主机、认证方式 |
-| `mcp__ssh__ssh_exec` | 执行命令，返回 stdout/stderr/退出码，`workdir`/`timeoutMs` 可选 |
-| `mcp__ssh__ssh_upload` | 本地文件 → 远端（SFTP，自动建父目录） |
-| `mcp__ssh__ssh_download` | 远端文件 → 本地（SFTP） |
+| `ssh_exec` | 在**本工作区绑定的主机**上执行命令，返回 stdout/stderr/退出码，`workdir`/`timeoutMs` 可选 |
+| `ssh_upload` | 本地文件 → 绑定主机（SFTP，自动建父目录） |
+| `ssh_download` | 绑定主机文件 → 本地（SFTP） |
+| `ssh_workspace` | 回报当前工作区绑定的主机、登录目录与远端工作目录 |
+
+四个工具都**没有 host 参数**：目标主机只来自工作区绑定，`ssh-hosts.json` 里其它服务器对模型不可见。
 
 非零退出码以 `[exit code: N]` 返回，不算工具错误；超时会向远端发 `KILL` 并标 `[timed out after Nms]`。
 
@@ -158,7 +161,7 @@ Host 进程内存（`setRuntimePassword`），**不写任何文件**，DSH 重�
 
 ```md
 <!-- dsh-ssh:root -->
-远端工作目录：`/srv/app`。所有远端命令都以它为工作目录，`mcp__ssh__ssh_exec` 请显式传 `workdir: "/srv/app"`。
+远端工作目录：`/srv/app`。所有远端命令都以它为工作目录，`ssh_exec` 请显式传 `workdir: "/srv/app"`。
 <!-- /dsh-ssh:root -->
 ```
 
@@ -169,9 +172,10 @@ Host 进程内存（`setRuntimePassword`），**不写任何文件**，DSH 重�
 ```bash
 npm install
 # 需要一台已配置在 ~/.dsh/ssh-hosts.json 里的主机
+node test/tools-isolation.mjs        # 隔离契约：无 host 参数 / 未绑定拒绝 / 只连绑定主机
 DSH_SSH_TEST_HOST=prod node test/host-api.mjs
 DSH_SSH_TEST_HOST=prod DSH_SSH_TEST_PASSWORD_HOST=legacy node test/host-api.mjs
-node test/smoke.mjs   # MCP stdio 全链路：握手 → tools/list → 执行 → 上传下载往返
+node test/smoke.mjs                  # 可选：MCP stdio 全链路（兼容实现）
 ```
 
 `lib/client.js` 是**手写**的浏览器 bundle（DSH 的模块格式：`window.__ModuleLoader__.load({id, factory})`），
@@ -186,7 +190,7 @@ node test/smoke.mjs   # MCP stdio 全链路：握手 → tools/list → 执行 �
 
 ## 兼容性
 
-在 DSH Desktop `0.2.1-rc.3`（`dsh-mcp-client`、`sidebar.panellist`、`conversation.composer.dock` 等
+在 DSH Desktop `0.2.1-rc.3`（`sidebar.panellist`、`conversation.composer.dock` 等
 slot 均有）上验证；依赖 `ssh2`、`@modelcontextprotocol/sdk`、`zod`。
 
 ## License

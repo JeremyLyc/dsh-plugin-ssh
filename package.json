@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-ssh",
-  "version": "0.3.1",
-  "description": "SSH remote workspaces for DeepSeek Harness: agent tools plus a sidebar panel, server file browser, directory picker and password prompt",
+  "version": "0.4.0",
+  "description": "Workspace-scoped SSH for DeepSeek Harness: a session can only reach the server its workspace is bound to; agent tools plus a sidebar panel, server file browser, directory picker and password prompt",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -25,6 +25,7 @@
   },
   "files": [
     "lib/index.js",
+    "lib/tools.js",
     "lib/client.js",
     "lib/config.js",
     "lib/ssh.js",

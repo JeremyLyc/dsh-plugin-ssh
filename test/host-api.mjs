@@ -12,7 +12,7 @@
  *
  * Without them the script only prints the guidance and exits 0.
  */
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { apply } from '../lib/index.js'
@@ -40,7 +40,11 @@ const fakeCtx = {
   effect(fn) {
     fn()
   },
-  logger: { info() {}, warn() {} },
+  logger: { info() {}, warn() {}, error() {} },
+  // These tests drive the HTTP routes only; the tool registry is stubbed so the
+  // plugin's apply() can register its workspace-scoped tools harmlessly.
+  tools: { register() { return () => {} } },
+  workingDirectory: { async ensure() { return process.cwd() } },
 }
 
 apply(fakeCtx)
@@ -134,7 +138,16 @@ const binding = JSON.parse(readFileSync(bindingPath, 'utf8'))
 const instructions = readFileSync(instructionsPath, 'utf8')
 console.log('binding ->', JSON.stringify(binding))
 console.log('AGENTS.md ->', instructions.split('\n').length, 'lines; names the host:', instructions.includes(HOST))
-if (binding.host !== HOST || !instructions.includes('mcp__ssh__ssh_exec')) throw new Error('binding content wrong')
+if (binding.host !== HOST || !instructions.includes('ssh_exec') || instructions.includes('mcp__ssh__')) throw new Error('binding content wrong')
+
+// A workspace written by the MCP-era plugin carries instructions that name the
+// retired mcp__ssh__* tools; reading the binding must heal them.
+writeFileSync(instructionsPath, '# 远程工作区\n\n跑命令：`mcp__ssh__ssh_exec` 并传 `host`\n', 'utf8')
+const healed = await invoke('exact', `/ssh-panel/api/binding?path=${encodeURIComponent(workspace.parsed.path)}`, 'GET')
+const healedText = readFileSync(instructionsPath, 'utf8')
+console.log('\nstale instructions healed:', !healedText.includes('mcp__ssh__'), '| mentions ssh_exec:', healedText.includes('ssh_exec'))
+if (healed.status !== 200) throw new Error('binding read failed during the migration check')
+if (healedText.includes('mcp__ssh__')) throw new Error('stale instructions were not refreshed')
 
 const bound = await invoke('exact', `/ssh-panel/api/binding?path=${encodeURIComponent(workspace.parsed.path)}`, 'GET')
 console.log('\nGET /binding ->', bound.status, JSON.stringify(bound.parsed))
